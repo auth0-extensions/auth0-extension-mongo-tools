@@ -1,0 +1,10 @@
+version: '2'
+services:
+  mongodb:
+    image: mongo:3.2
+  tests:
+    build: .
+    depends_on:
+      - mongodb
+    links:
+      - mongodb:mongodb

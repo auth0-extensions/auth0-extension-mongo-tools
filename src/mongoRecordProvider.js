@@ -65,7 +65,7 @@ MongoRecordProvider.prototype.getAll = function(collectionName) {
       }
 
       return db.collection(collectionName)
-        .find({})
+        .find({ })
         .toArray(function(dbError, records) {
           if (dbError) {
             return reject(dbError);
@@ -128,13 +128,11 @@ MongoRecordProvider.prototype.create = function(collectionName, record) {
 
       return db.collection(collectionName)
         .insertOne(record, function(dbError) {
-          // Validate:
-          /*
-          return Promise.reject(
-            new ValidationError('The record ' + record._id + ' in ' + collectionName + ' already exists.')
-          );
-          */
-          if (dbError) {
+          if (dbError && dbError.name === 'MongoError' && dbError.code === 11000) {
+            return reject(
+              new ValidationError('The record ' + record._id + ' in ' + collectionName + ' already exists.')
+            );
+          } else if (dbError) {
             return reject(dbError);
           }
 
@@ -165,21 +163,27 @@ MongoRecordProvider.prototype.update = function(collectionName, identifier, reco
       }
 
       return db.collection(collectionName)
-        .updateOne({ _id: identifier }, record, { upsert: upsert }, function(dbError) {
-          // Validate:
-          /*
-          return Promise.reject(
-            new ValidationError('The record ' + record._id + ' in ' + collectionName + ' already exists.')
-          );
-          */
+        .update({ _id: identifier }, { $set: record }, { upsert: !!upsert }, function(dbError, status) {
           if (dbError) {
             return reject(dbError);
           }
 
+          if (status && status.result && (status.result.nModified === 0 && (status.result.upserted && status.result.upserted.length === 0))) {
+            return reject(new NotFoundError('The record ' + record._id + ' in ' + collectionName + ' does not exist.'));
+          }
+
           return db.collection(collectionName)
-            .findOne({ _id: identifier })
-            .then(function(item) {
-              return resolve(item);
+            .find({ _id: identifier })
+            .toArray(function(dbError, records) {
+              if (dbError) {
+                return reject(dbError);
+              }
+
+              if (records && records.length) {
+                return resolve(records[0]);
+              }
+
+              return reject(new NotFoundError('The record ' + record._id + ' in ' + collectionName + ' does not exist.'));
             });
         });
     });
@@ -200,13 +204,29 @@ MongoRecordProvider.prototype.delete = function(collectionName, identifier) {
       }
 
       return db.collection(collectionName)
-        .removeOne({ _id: identifier }, function(dbError) {
-          if (dbError) {
-            return reject(dbError);
-          }
+        .removeOne({ _id: identifier })
+        .then(function(status) {
+          resolve(status && status.result && status.result.ok && status.result.n);
+        })
+        .catch(reject);
+    });
+  });
+};
 
-          return resolve();
-        });
+/**
+ * Close the connection to the database.
+ */
+MongoRecordProvider.prototype.closeConnection = function() {
+  const getDb = this.getDb;
+  return new Promise(function(resolve, reject) {
+    getDb(function(err, db) {
+      if (err) {
+        return reject(err);
+      }
+
+      return db.close(function() {
+        return resolve();
+      });
     });
   });
 };
