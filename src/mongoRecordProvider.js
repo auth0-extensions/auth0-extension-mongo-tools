@@ -1,5 +1,5 @@
 const url = require('url');
-const uuid = require('node-uuid');
+const uuid = require('uuid');
 const Promise = require('bluebird');
 const ArgumentError = require('auth0-extension-tools').ArgumentError;
 const NotFoundError = require('auth0-extension-tools').NotFoundError;
